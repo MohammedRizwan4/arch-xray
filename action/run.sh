@@ -51,7 +51,13 @@ cp archxray-out/report.html archxray-out/diff.svg archxray-out/diff.json "$GHP/$
 touch "$GHP/.nojekyll"
 git -C "$GHP" add -A
 git -C "$GHP" commit -m "archxray: report for PR #${PR_NUMBER} (${HEAD_SHA})" > /dev/null
-git -C "$GHP" push origin gh-pages
+# concurrent PR runs race on gh-pages — rebase and retry
+for attempt in 1 2 3 4; do
+  if git -C "$GHP" push origin gh-pages 2>/dev/null; then break; fi
+  echo "gh-pages push rejected (attempt ${attempt}) — rebasing"
+  git -C "$GHP" pull --rebase origin gh-pages
+  sleep $((attempt * 2))
+done
 echo "::endgroup::"
 
 echo "::group::Post PR comment"
