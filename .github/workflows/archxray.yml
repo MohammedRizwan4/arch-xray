@@ -1,0 +1,35 @@
+# ArchXray — posts an architecture diff comment on every PR that changes the structure.
+# Needs no secrets beyond the built-in GITHUB_TOKEN.
+name: ArchXray
+
+on: pull_request
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  xray:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the base branch for the comparison
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: X-ray the architecture
+        run: node bin/archxray.js diff --repo . --base "origin/${{ github.base_ref }}" --head HEAD --out archxray-out
+
+      - name: Comment on the PR (only when the architecture changed)
+        if: ${{ hashFiles('archxray-out/comment.md') != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file archxray-out/comment.md \
+            --edit-last --create-if-none \
+          || gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file archxray-out/comment.md

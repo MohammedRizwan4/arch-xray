@@ -1,0 +1,14 @@
+{
+  "name": "archxray",
+  "version": "0.1.0",
+  "description": "X-ray your pull requests: architecture diff, guardrails, AI narration, and time-lapse — in one PR comment. Zero dependencies.",
+  "bin": { "archxray": "bin/archxray.js" },
+  "scripts": {
+    "demo:setup": "node demo/setup.js",
+    "demo:diff": "node bin/archxray.js diff --repo demo/shop-api --base main --head feature/analytics-refunds",
+    "demo:silent": "node bin/archxray.js diff --repo demo/shop-api --base main~2 --head main~1",
+    "demo:timelapse": "node bin/archxray.js timelapse --repo demo/shop-api --count 10"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}
