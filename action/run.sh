@@ -2,6 +2,21 @@
 # ArchXray composite-action driver: diff the PR, publish report to gh-pages, post/update the comment.
 set -euo pipefail
 
+if [ -z "${PR_NUMBER}" ]; then
+  echo "::error::no PR number — run on a pull_request event or pass pr-number"
+  exit 1
+fi
+
+# On pull_request events the merge ref is checked out and GITHUB_BASE_REF is set.
+# On workflow_dispatch we resolve everything from the PR itself.
+HEAD_REF="HEAD"
+if [ -z "${GITHUB_BASE_REF:-}" ]; then
+  GITHUB_BASE_REF=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .base.ref)
+  HEAD_SHA=$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.sha)
+  git fetch -q origin "pull/${PR_NUMBER}/head"
+  HEAD_REF="${HEAD_SHA}"
+fi
+
 BASE_REF="${INPUT_BASE:-origin/${GITHUB_BASE_REF}}"
 OWNER="${GITHUB_REPOSITORY%%/*}"
 REPO="${GITHUB_REPOSITORY##*/}"
@@ -13,7 +28,7 @@ IMAGE_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/gh-pages/${PR_
 echo "::group::ArchXray diff (${BASE_REF} -> HEAD)"
 set +e
 node "$GITHUB_ACTION_PATH/bin/archxray.js" diff \
-  --repo . --base "$BASE_REF" --head HEAD --out archxray-out \
+  --repo . --base "$BASE_REF" --head "$HEAD_REF" --out archxray-out \
   --image-url "$IMAGE_URL" --report-url "$PAGES_URL" \
   $([ "$INPUT_FAIL" = "true" ] && echo --fail-on-violation)
 XRAY_EXIT=$?

@@ -14,6 +14,9 @@ inputs:
   github-token:
     description: 'Token used to publish the report and post the comment'
     default: ${{ github.token }}
+  pr-number:
+    description: 'PR number (auto on pull_request events; pass explicitly for workflow_dispatch)'
+    default: ${{ github.event.pull_request.number }}
 
 runs:
   using: composite
@@ -28,6 +31,6 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         INPUT_BASE: ${{ inputs.base }}
         INPUT_FAIL: ${{ inputs.fail-on-violation }}
-        PR_NUMBER: ${{ github.event.pull_request.number }}
+        PR_NUMBER: ${{ inputs.pr-number }}
         HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       run: bash "$GITHUB_ACTION_PATH/action/run.sh"
