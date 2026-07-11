@@ -1,0 +1,33 @@
+name: 'ArchXray'
+description: 'X-ray your PR: architecture diff, guardrails, heatmap and an interactive report — in one comment'
+branding:
+  icon: 'activity'
+  color: 'red'
+
+inputs:
+  fail-on-violation:
+    description: 'Fail the check when a rule is broken or a new cycle appears'
+    default: 'false'
+  base:
+    description: 'Baseline ref (defaults to the PR base branch)'
+    default: ''
+  github-token:
+    description: 'Token used to publish the report and post the comment'
+    default: ${{ github.token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install ArchXray dependencies
+      shell: bash
+      run: npm ci --prefix "$GITHUB_ACTION_PATH" --no-audit --no-fund
+
+    - name: X-ray the pull request
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        INPUT_BASE: ${{ inputs.base }}
+        INPUT_FAIL: ${{ inputs.fail-on-violation }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: bash "$GITHUB_ACTION_PATH/action/run.sh"

@@ -38,7 +38,8 @@ function snapshot(repo, ref) {
     execFileSync('git', ['-C', repo, 'archive', '--format=tar', '-o', tarPath, ref]);
     const outDir = path.join(tmp, 'tree');
     fs.mkdirSync(outDir);
-    execFileSync('tar', ['-xf', tarPath, '-C', outDir]);
+    // relative paths: Windows tar reads "C:" in absolute paths as a remote host
+    execFileSync('tar', ['-xf', 'snap.tar', '-C', 'tree'], { cwd: tmp });
     return readTree(outDir);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -49,4 +50,20 @@ function git(repo, args) {
   return execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8' }).trim();
 }
 
-module.exports = { snapshot, readTree, git };
+// Source files touched between base and head (three-dot: changes on head's side
+// only, like a PR view). head 'WORKTREE' diffs the working tree against base.
+function changedFiles(repo, base, head) {
+  let out;
+  if (head === 'WORKTREE') {
+    out = git(repo, ['diff', '--name-only', base]);
+  } else {
+    try {
+      out = git(repo, ['diff', '--name-only', `${base}...${head}`]);
+    } catch {
+      out = git(repo, ['diff', '--name-only', base, head]);
+    }
+  }
+  return out.split('\n').filter((p) => p && wantFile(p));
+}
+
+module.exports = { snapshot, readTree, git, changedFiles };

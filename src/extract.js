@@ -122,7 +122,16 @@ function buildGraph(filesMap) {
     })
     .sort((a, b) => `${a.from}->${a.to}`.localeCompare(`${b.from}->${b.to}`));
 
-  return { nodes: [...nodes].sort(), edges };
+  return { nodes: [...nodes].sort(), edges, root };
 }
 
-module.exports = { buildGraph, isSourceFile, SOURCE_EXT, IGNORE_DIRS };
+// Maps a repo-relative file path to its module under the graph's source root.
+function moduleOfPath(root, relPath) {
+  const p = relPath.replace(/\\/g, '/');
+  if (root && !p.startsWith(root)) return null;
+  const rest = p.slice(root.length);
+  const i = rest.indexOf('/');
+  return i === -1 ? null : rest.slice(0, i);
+}
+
+module.exports = { buildGraph, moduleOfPath, isSourceFile, SOURCE_EXT, IGNORE_DIRS };

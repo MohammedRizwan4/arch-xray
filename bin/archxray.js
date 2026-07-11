@@ -3,12 +3,13 @@
 
 const fs = require('fs');
 const path = require('path');
-const { buildGraph } = require('../src/extract');
-const { snapshot } = require('../src/gitsnap');
-const { diffGraphs } = require('../src/diff');
+const { buildGraph, moduleOfPath } = require('../src/extract');
+const { snapshot, changedFiles } = require('../src/gitsnap');
+const { diffGraphs, computeHeat } = require('../src/diff');
 const { loadRules, findViolations, findNewCycles } = require('../src/rules');
-const { plainDiagram, diffDiagram } = require('../src/puml');
-const { diagramUrl, fetchSvg, encodeDiagram, DEFAULT_SERVER } = require('../src/render');
+const { mergeScene, layoutScene } = require('../src/layout');
+const { buildSvg } = require('../src/svg');
+const { DEFAULT_SERVER } = require('../src/render');
 const { narrate } = require('../src/narrate');
 const { buildComment, buildReport, verdict, changeBullets } = require('../src/report');
 const { buildTimelapse } = require('../src/timelapse');
@@ -25,9 +26,11 @@ Options:
   --base <ref>           baseline ref                     (default: origin/main)
   --head <ref>           ref to compare, or WORKTREE      (default: HEAD)
   --out <dir>            output directory                 (default: ./archxray-out)
-  --server <url>         PlantUML server                  (default: ${DEFAULT_SERVER})
+  --image-url <url>      URL of diff.svg used in comment.md (default: ./diff.svg)
+  --report-url <url>     URL of report.html used in comment.md (default: ./report.html)
   --ai                   add an AI narration via the local \`claude\` CLI
   --fail-on-violation    exit code 2 when rules are broken or cycles appear (for CI)
+  --server <url>         timelapse: PlantUML server       (default: ${DEFAULT_SERVER})
   --count <n>            timelapse: number of commits     (default: 15)
 `;
 
@@ -52,7 +55,6 @@ async function cmdDiff(o) {
   const repo = path.resolve(o.repo || '.');
   const base = o.base || 'origin/main';
   const head = o.head || 'HEAD';
-  const server = o.server || DEFAULT_SERVER;
   const outDir = path.resolve(o.out || 'archxray-out');
 
   console.log(`🩻 ArchXray: ${path.basename(repo)}  ${base} → ${head}`);
@@ -73,17 +75,20 @@ async function cmdDiff(o) {
   const violations = findViolations(rules, diff.addedEdges);
   const cycles = findNewCycles(diff.addedEdges, headGraph);
 
-  const repoName = path.basename(repo);
-  const diffPuml = diffDiagram(
-    diff,
-    violations,
-    `Architecture impact — ${repoName} (${shortRef(base)} → ${shortRef(head)})`
-  );
-  const beforePuml = plainDiagram(baseGraph, `Before — ${shortRef(base)}`);
-  const afterPuml = plainDiagram(headGraph, `After — ${shortRef(head)}`);
+  // heat: files touched per module (best effort — needs git refs)
+  const changedByModule = new Map();
+  try {
+    for (const f of changedFiles(repo, base, head)) {
+      const m = moduleOfPath(headGraph.root ?? baseGraph.root, f);
+      if (m) changedByModule.set(m, (changedByModule.get(m) || 0) + 1);
+    }
+  } catch { /* heat degrades gracefully without git diff */ }
+  const heat = computeHeat(diff, changedByModule);
 
-  const pngUrl = diagramUrl(server, 'png', diffPuml);
-  const editUrl = `${server.replace(/\/$/, '')}/uml/${encodeDiagram(diffPuml)}`;
+  const repoName = path.basename(repo);
+  const title = `Architecture impact — ${repoName} (${shortRef(base)} → ${shortRef(head)})`;
+  const layout = await layoutScene(mergeScene(diff, violations, cycles, heat));
+  const svg = buildSvg(layout, { title });
 
   let narration = null;
   if (o.ai) {
@@ -104,28 +109,16 @@ async function cmdDiff(o) {
 
   fs.mkdirSync(outDir, { recursive: true });
 
-  let svgs = null;
-  try {
-    const [d, b, a] = await Promise.all([
-      fetchSvg(diagramUrl(server, 'svg', diffPuml)),
-      fetchSvg(diagramUrl(server, 'svg', beforePuml)),
-      fetchSvg(diagramUrl(server, 'svg', afterPuml)),
-    ]);
-    svgs = { diff: d, before: b, after: a };
-    fs.writeFileSync(path.join(outDir, 'diff.svg'), d);
-  } catch (err) {
-    console.warn(`   ⚠️ render server unreachable (${err.message.split('\n')[0]}) — .puml sources written instead`);
-  }
-
-  const ctx = { repoName, base, head, diff, violations, cycles, narration, pngUrl, editUrl, svgs };
+  const ctx = {
+    repoName, base, head, diff, violations, cycles, narration, layout,
+    imageUrl: o['image-url'], reportUrl: o['report-url'],
+  };
+  fs.writeFileSync(path.join(outDir, 'diff.svg'), svg);
   fs.writeFileSync(path.join(outDir, 'comment.md'), buildComment(ctx));
   fs.writeFileSync(path.join(outDir, 'report.html'), buildReport(ctx));
-  fs.writeFileSync(path.join(outDir, 'diff.puml'), diffPuml);
-  fs.writeFileSync(path.join(outDir, 'before.puml'), beforePuml);
-  fs.writeFileSync(path.join(outDir, 'after.puml'), afterPuml);
   fs.writeFileSync(
     path.join(outDir, 'diff.json'),
-    JSON.stringify({ base, head, diff, violations, cycles }, null, 2)
+    JSON.stringify({ base, head, diff, violations, cycles, heat: Object.fromEntries(heat) }, null, 2)
   );
 
   const v = verdict(violations, cycles);
